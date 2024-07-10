@@ -5,26 +5,45 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/TilliboyF/1brc/data"
+	"github.com/TilliboyF/1brc/hashtable"
 )
 
 var (
-	data         map[string]*Measurement
-	resultStream chan map[string]*Measurement
+	allData      *hashtable.HashTable
+	resultStream chan *hashtable.HashTable
 )
+
+func Djb2(key string) uint64 {
+	// Initial prime value
+	hash := uint64(1099511628211)
+	for _, c := range key {
+		char_code := uint64(c)
+
+		// (hash<<5) means hash*(2^5)
+		hash = ((hash << 5) + hash) + char_code
+	}
+	return hash
+}
 
 // setup
 func init() {
-	data = make(map[string]*Measurement)
-	resultStream = make(chan map[string]*Measurement, 10)
+	data = NewHashTable(1000000, 200, Djb2)
+	resultStream = make(chan *HashTable, 20)
 }
 
 func main() {
+
+	start := time.Now()
+
 	go readInData()
 
 	for res := range resultStream {
@@ -46,6 +65,9 @@ func main() {
 
 	sortData()
 
+	elapsed := time.Since(start)
+	log.Printf("1brc took %s", elapsed)
+
 }
 
 func readInData() {
@@ -53,7 +75,7 @@ func readInData() {
 	fmt.Println("reading in lines...")
 
 	var wg sync.WaitGroup
-	chunkStream := make(chan []byte, 10)
+	chunkStream := make(chan []byte, 11)
 
 	numCPU := runtime.NumCPU()
 
@@ -110,7 +132,7 @@ func readInData() {
 func sortData() {
 	fmt.Println("Sorting...")
 	keys := []string{}
-	for k := range data {
+	for k := range data { // how to fix that????
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -121,7 +143,9 @@ func sortData() {
 
 	stringbuilder.WriteString("{\n")
 	for _, k := range keys {
-		stringbuilder.WriteString(data[k].String())
+		stringbuilder.WriteString(k)
+		stringbuilder.WriteString("=")
+		stringbuilder.WriteString(data.Get(k).String())
 		stringbuilder.WriteString("\n")
 	}
 	stringbuilder.WriteString("}")
@@ -144,34 +168,58 @@ func check(e error) {
 	}
 }
 
-func stringToInt64(val string) int64 {
-	input := val[:len(val)-2] + val[len(val)-1:]
-	res, _ := strconv.ParseInt(input, 10, 64)
-	return res
+func bytesToInt32(tempInBytes []byte) int32 {
+	negativ := false
+	index := 0
+	if tempInBytes[index] == '-' {
+		index++
+		negativ = true
+	}
+
+	// to convert a byte int to an actual int it's need to subtract 0 from them'
+	// 0-9 in Ascii/unicode is 48-57
+	temp := int32(tempInBytes[index] - '0')
+	index++
+	if tempInBytes[index] != '.' {
+		temp = temp*10 + int32(tempInBytes[index]-'0')
+		index++
+	}
+	index++
+	temp = temp*10 + int32(tempInBytes[index]-'0')
+
+	if negativ {
+		temp = -temp
+	}
+
+	return temp
+
 }
 
-func processChunk(chunk []byte, stream chan<- map[string]*Measurement) {
+func processChunk(chunk []byte, stream chan<- *HashTable) {
 
-	result := make(map[string]*Measurement)
-	var builder strings.Builder
+	result := NewHashTable(1000000, 80, Djb2)
 	var city string
 
-	for _, c := range chunk {
-		if c == ';' { // case city
-			city = builder.String()
-			builder.Reset()
-		} else if c == '\n' { // case temperature
-			tempString := builder.String()
-			temp := stringToInt64(tempString)
-			if m, ok := result[city]; ok {
+	cityStartIndex := 0
+	tempStartIndex := 0
+	index := 0
+
+	chunksize := len(chunk)
+
+	for index < chunksize {
+		if chunk[index] == ';' { // city ends
+			city = string(chunk[cityStartIndex:index])
+			tempStartIndex = index + 1
+		} else if chunk[index] == '\n' {
+			temp := bytesToInt32(chunk[tempStartIndex:index])
+			if m := result.Get(city); m != nil {
 				m.addVal(temp)
 			} else {
-				result[city] = NewMeasurement(city, temp)
+				result.Set(city, NewMeasurement(temp))
 			}
-			builder.Reset()
-		} else { // case in between
-			builder.WriteByte(c)
+			cityStartIndex = index + 1
 		}
+		index++
 	}
 
 	stream <- result
