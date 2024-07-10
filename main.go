@@ -24,7 +24,7 @@ var (
 
 // setup
 func init() {
-	allData = hashtable.NewSimpleHashTable()
+	allData = hashtable.NewCustomHashTable(40000)
 	resultStream = make(chan hashtable.HashTable)
 }
 
@@ -62,12 +62,12 @@ func readInData() {
 
 	fmt.Println("reading in lines...")
 
+	numCPU := runtime.NumCPU() - 1
+
 	var wg sync.WaitGroup
-	chunkStream := make(chan []byte, 10)
+	chunkStream := make(chan []byte, numCPU)
 
-	numCPU := runtime.NumCPU()
-
-	for i := 0; i < numCPU-1; i++ {
+	for i := 0; i < numCPU; i++ {
 		wg.Add(1)
 		go func() {
 			for chunk := range chunkStream {
@@ -197,7 +197,7 @@ func bytesToInt32(tempInBytes []byte) int32 {
 
 func processChunk(chunk []byte, stream chan<- hashtable.HashTable) {
 
-	result := hashtable.NewSimpleHashTable()
+	result := hashtable.NewCustomHashTable(5000)
 	var city []byte
 
 	cityStartIndex := 0

@@ -2,15 +2,9 @@ package hashtable
 
 import (
 	"bytes"
-	"hash/fnv"
 
 	"github.com/TilliboyF/1brc/data"
 )
-
-type Entry struct {
-	Key   []byte
-	Value *data.Measurement
-}
 
 type SimpleHashTable struct {
 	buckets map[uint32][]*Entry
@@ -20,12 +14,6 @@ func NewSimpleHashTable() *SimpleHashTable {
 	return &SimpleHashTable{
 		buckets: make(map[uint32][]*Entry),
 	}
-}
-
-func _hash(key []byte) uint32 {
-	h := fnv.New32a()
-	h.Write(key)
-	return h.Sum32()
 }
 
 func (ht *SimpleHashTable) Put(key []byte, value *data.Measurement) {
