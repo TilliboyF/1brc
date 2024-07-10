@@ -18,26 +18,14 @@ import (
 )
 
 var (
-	allData      *hashtable.HashTable
-	resultStream chan *hashtable.HashTable
+	allData      hashtable.HashTable
+	resultStream chan hashtable.HashTable
 )
-
-func Djb2(key string) uint64 {
-	// Initial prime value
-	hash := uint64(1099511628211)
-	for _, c := range key {
-		char_code := uint64(c)
-
-		// (hash<<5) means hash*(2^5)
-		hash = ((hash << 5) + hash) + char_code
-	}
-	return hash
-}
 
 // setup
 func init() {
-	data = NewHashTable(1000000, 200, Djb2)
-	resultStream = make(chan *HashTable, 20)
+	allData = hashtable.NewSimpleHashTable()
+	resultStream = make(chan hashtable.HashTable)
 }
 
 func main() {
@@ -47,18 +35,18 @@ func main() {
 	go readInData()
 
 	for res := range resultStream {
-		for city, vals := range res {
-			if m, ok := data[city]; ok {
-				m.Amount += vals.Amount
-				m.Sum += vals.Sum
-				if vals.Max > m.Max {
-					m.Max = vals.Max
+		for entry := range res.Iter() {
+			if m, ok := allData.Get(entry.Key); ok {
+				m.Amount += entry.Value.Amount
+				m.Sum += entry.Value.Sum
+				if entry.Value.Max > m.Max {
+					m.Max = entry.Value.Max
 				}
-				if vals.Min < m.Min {
-					m.Min = vals.Min
+				if entry.Value.Min < m.Min {
+					m.Min = entry.Value.Min
 				}
 			} else {
-				data[city] = vals
+				allData.Put(entry.Key, entry.Value)
 			}
 		}
 	}
@@ -75,7 +63,7 @@ func readInData() {
 	fmt.Println("reading in lines...")
 
 	var wg sync.WaitGroup
-	chunkStream := make(chan []byte, 11)
+	chunkStream := make(chan []byte, 10)
 
 	numCPU := runtime.NumCPU()
 
@@ -129,13 +117,25 @@ func readInData() {
 	close(resultStream)
 }
 
+type ByteSlices [][]byte
+
+func (b ByteSlices) Len() int {
+	return len(b)
+}
+
+func (b ByteSlices) Swap(i, j int) {
+	b[i], b[j] = b[j], b[i]
+}
+
+func (b ByteSlices) Less(i, j int) bool {
+	return bytes.Compare(b[i], b[j]) < 0
+}
+
 func sortData() {
 	fmt.Println("Sorting...")
-	keys := []string{}
-	for k := range data { // how to fix that????
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := allData.Keys()
+
+	sort.Sort(ByteSlices(keys))
 
 	fmt.Println("Creating Result...")
 
@@ -143,9 +143,9 @@ func sortData() {
 
 	stringbuilder.WriteString("{\n")
 	for _, k := range keys {
-		stringbuilder.WriteString(k)
+		stringbuilder.Write(k)
 		stringbuilder.WriteString("=")
-		stringbuilder.WriteString(data.Get(k).String())
+		stringbuilder.WriteString(allData.MustGet(k).String())
 		stringbuilder.WriteString("\n")
 	}
 	stringbuilder.WriteString("}")
@@ -195,10 +195,10 @@ func bytesToInt32(tempInBytes []byte) int32 {
 
 }
 
-func processChunk(chunk []byte, stream chan<- *HashTable) {
+func processChunk(chunk []byte, stream chan<- hashtable.HashTable) {
 
-	result := NewHashTable(1000000, 80, Djb2)
-	var city string
+	result := hashtable.NewSimpleHashTable()
+	var city []byte
 
 	cityStartIndex := 0
 	tempStartIndex := 0
@@ -208,14 +208,14 @@ func processChunk(chunk []byte, stream chan<- *HashTable) {
 
 	for index < chunksize {
 		if chunk[index] == ';' { // city ends
-			city = string(chunk[cityStartIndex:index])
+			city = chunk[cityStartIndex:index]
 			tempStartIndex = index + 1
 		} else if chunk[index] == '\n' {
 			temp := bytesToInt32(chunk[tempStartIndex:index])
-			if m := result.Get(city); m != nil {
-				m.addVal(temp)
+			if m, ok := result.Get(city); ok {
+				m.AddVal(temp)
 			} else {
-				result.Set(city, NewMeasurement(temp))
+				result.Put(city, data.NewMeasurement(temp))
 			}
 			cityStartIndex = index + 1
 		}

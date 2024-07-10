@@ -18,7 +18,7 @@ func NewMeasurement(val int32) *Measurement {
 	}
 }
 
-func (m *Measurement) addVal(val int32) {
+func (m *Measurement) AddVal(val int32) {
 	if val < m.Min {
 		m.Min = val
 	}
