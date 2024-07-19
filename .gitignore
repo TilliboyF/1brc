@@ -3,3 +3,7 @@ create_measurements.py
 *.txt
 /tmp
 *.csv
+*.prof
+*.svg
+
+go/versions/v3.go

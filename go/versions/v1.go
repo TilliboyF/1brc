@@ -1,4 +1,4 @@
-package main
+package versions
 
 import (
 	"bytes"
@@ -13,40 +13,33 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TilliboyF/1brc/data"
-	"github.com/TilliboyF/1brc/hashtable"
+	"github.com/TilliboyF/1brc/go/data"
+	"github.com/TilliboyF/1brc/go/hashtable"
 )
 
 var (
-	allData      hashtable.HashTable
-	resultStream chan hashtable.HashTable
+	allData      map[string]*data.Measurement
+	resultStream chan map[string]*data.Measurement
 )
 
 // setup
 func init() {
-	allData = hashtable.NewCustomHashTable(40000)
-	resultStream = make(chan hashtable.HashTable)
+	allData = make(map[string]*data.Measurement)
+	resultStream = make(chan map[string]*data.Measurement, 10)
 }
 
-func main() {
+func V1() {
 
 	start := time.Now()
 
 	go readInData()
 
 	for res := range resultStream {
-		for entry := range res.Iter() {
-			if m, ok := allData.Get(entry.Key); ok {
-				m.Amount += entry.Value.Amount
-				m.Sum += entry.Value.Sum
-				if entry.Value.Max > m.Max {
-					m.Max = entry.Value.Max
-				}
-				if entry.Value.Min < m.Min {
-					m.Min = entry.Value.Min
-				}
+		for key, value := range res {
+			if val, ok := allData[key]; ok {
+				val.AddMeasurement(value)
 			} else {
-				allData.Put(entry.Key, entry.Value)
+				allData[key] = value
 			}
 		}
 	}
@@ -65,7 +58,7 @@ func readInData() {
 	numCPU := runtime.NumCPU() - 1
 
 	var wg sync.WaitGroup
-	chunkStream := make(chan []byte, numCPU)
+	chunkStream := make(chan []byte, 10)
 
 	for i := 0; i < numCPU; i++ {
 		wg.Add(1)
@@ -117,25 +110,14 @@ func readInData() {
 	close(resultStream)
 }
 
-type ByteSlices [][]byte
-
-func (b ByteSlices) Len() int {
-	return len(b)
-}
-
-func (b ByteSlices) Swap(i, j int) {
-	b[i], b[j] = b[j], b[i]
-}
-
-func (b ByteSlices) Less(i, j int) bool {
-	return bytes.Compare(b[i], b[j]) < 0
-}
-
 func sortData() {
 	fmt.Println("Sorting...")
-	keys := allData.Keys()
+	var keys []string
+	for key, _ := range allData {
+		keys = append(keys, key)
+	}
 
-	sort.Sort(ByteSlices(keys))
+	sort.Strings(keys)
 
 	fmt.Println("Creating Result...")
 
@@ -143,9 +125,9 @@ func sortData() {
 
 	stringbuilder.WriteString("{\n")
 	for _, k := range keys {
-		stringbuilder.Write(k)
+		stringbuilder.WriteString(k)
 		stringbuilder.WriteString("=")
-		stringbuilder.WriteString(allData.MustGet(k).String())
+		stringbuilder.WriteString(allData[k].String())
 		stringbuilder.WriteString("\n")
 	}
 	stringbuilder.WriteString("}")
@@ -195,9 +177,9 @@ func bytesToInt32(tempInBytes []byte) int32 {
 
 }
 
-func processChunk(chunk []byte, stream chan<- hashtable.HashTable) {
+func processChunk(chunk []byte, stream chan<- map[string]*data.Measurement) {
 
-	result := hashtable.NewCustomHashTable(5000)
+	result := hashtable.NewLHashTable()
 	var city []byte
 
 	cityStartIndex := 0
@@ -212,15 +194,18 @@ func processChunk(chunk []byte, stream chan<- hashtable.HashTable) {
 			tempStartIndex = index + 1
 		} else if chunk[index] == '\n' {
 			temp := bytesToInt32(chunk[tempStartIndex:index])
-			if m, ok := result.Get(city); ok {
-				m.AddVal(temp)
-			} else {
-				result.Put(city, data.NewMeasurement(temp))
-			}
+			result.Put(city, temp)
 			cityStartIndex = index + 1
 		}
 		index++
 	}
 
-	stream <- result
+	res := make(map[string]*data.Measurement)
+	for _, entry := range result.Entrys {
+		if entry.Key != nil {
+			res[string(entry.Key)] = entry.Value
+		}
+	}
+
+	stream <- res
 }

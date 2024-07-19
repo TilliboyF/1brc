@@ -3,7 +3,7 @@ package hashtable
 import (
 	"bytes"
 
-	"github.com/TilliboyF/1brc/data"
+	"github.com/TilliboyF/1brc/go/data"
 )
 
 type SimpleHashTable struct {
@@ -16,13 +16,34 @@ func NewSimpleHashTable() *SimpleHashTable {
 	}
 }
 
-func (ht *SimpleHashTable) Put(key []byte, value *data.Measurement) {
+func (ht *SimpleHashTable) Put(key []byte, value int32) {
 	hash := _hash(key)
 	bucket := ht.buckets[hash]
 
 	for _, entry := range bucket {
 		if bytes.Equal(entry.Key, key) {
-			entry.Value = value
+			entry.Value.AddVal(value)
+			return
+		}
+	}
+
+	ht.buckets[hash] = append(ht.buckets[hash], &Entry{Key: key, Value: data.NewMeasurement(value)})
+}
+
+func (ht *SimpleHashTable) PutObject(key []byte, value *data.Measurement) {
+	hash := _hash(key)
+	bucket := ht.buckets[hash]
+
+	for _, entry := range bucket {
+		if bytes.Equal(entry.Key, key) {
+			entry.Value.Amount += value.Amount
+			entry.Value.Sum += value.Sum
+			if value.Max > entry.Value.Max {
+				entry.Value.Max = value.Max
+			}
+			if value.Min < entry.Value.Min {
+				entry.Value.Min = value.Min
+			}
 			return
 		}
 	}

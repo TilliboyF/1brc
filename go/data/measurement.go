@@ -1,6 +1,8 @@
 package data
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Measurement struct {
 	Min    int32
@@ -29,8 +31,19 @@ func (m *Measurement) AddVal(val int32) {
 	m.Amount += 1
 }
 
-func (m Measurement) String() string {
-	return fmt.Sprintf("%f/%f/%f",
+func (m *Measurement) AddMeasurement(val *Measurement) {
+	if val.Min < m.Min {
+		m.Min = val.Min
+	}
+	if val.Max > m.Max {
+		m.Max = val.Max
+	}
+	m.Sum += val.Sum
+	m.Amount += val.Amount
+}
+
+func (m *Measurement) String() string {
+	return fmt.Sprintf("%.1f/%.1f/%.1f",
 		float64(m.Min)/10,
 		float64(m.Max)/10,
 		float64(m.Sum)/(float64(m.Amount)*10))
