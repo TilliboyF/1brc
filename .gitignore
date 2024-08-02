@@ -7,3 +7,5 @@ create_measurements.py
 *.svg
 
 go/versions/v3.go
+
+node/node_modules

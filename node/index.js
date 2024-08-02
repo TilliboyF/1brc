@@ -9,6 +9,69 @@ import {
 import { queue } from "async";
 import { cpus } from "node:os";
 
+const wt = () => {
+  const filePath = "path/to/your/file.txt";
+  const chunkSize = 1024 * 1024;
+
+  if (isMainThread) {
+    const numWorkers = cpus().length - 1;
+
+    const resultmap = new Map();
+
+    const taskQueue = queue((chunk, callback) => {
+      const worker = new Worker(__filename, { workerData: chunk });
+      worker.on("message", (map) => {
+        resultQueue.push(map, (err) => {
+          if (err) console.error("Error processing result:", err);
+        });
+        callback();
+      });
+      worker.on("error", callback);
+    }, numWorkers);
+
+    const resultQueue = queue((map, callback) => {
+      for (const [city, temp] of map.entries()) {
+        if (resultmap.has(city)) {
+          let m = resultmap.get(city);
+          m.addMeasurement(temp);
+        } else {
+          resultmap.set(city, temp);
+        }
+      }
+      callback();
+    }, 1);
+  } else {
+    const chunk = workerData;
+    const data = processChunk(chunk);
+    parentPort.postMessage(data);
+  }
+};
+
+/**
+ *
+ * @param {string} chunk
+ * @returns {Map} result
+ */
+const processChunk = (chunk) => {
+  const data = new Map();
+
+  let lines = chunk.split("\n");
+
+  lines.forEach((line) => {
+    let parts = line.split(";");
+    let city = parts[0];
+    let temp = stringToInt(parts[1]);
+    if (data.has(city)) {
+      let m = data.get(city);
+      m.addTemp(temp);
+    } else {
+      data.set(city, new Measurement(temp));
+    }
+  });
+
+  return data;
+};
+
 const start = performance.now();
 
 const fileStream = fs.createReadStream("../data/measurements.txt", {
@@ -85,6 +148,10 @@ class Measurement {
     this.sum = temp;
   }
 
+  /**
+   *
+   * @param {int} temp
+   */
   addTemp(temp) {
     if (temp < this.min) {
       this.min = temp;
@@ -94,6 +161,20 @@ class Measurement {
     }
     this.sum += temp;
     this.amount++;
+  }
+
+  /**
+   * @param {Measurement} temp
+   */
+  addMeasurement(temp) {
+    if (temp.min < this.min) {
+      this.min = temp.min;
+    }
+    if (temp.max > this.max) {
+      this.max = temp.max;
+    }
+    this.sum += temp.sum;
+    this.amount += temp.amount;
   }
 
   string() {
